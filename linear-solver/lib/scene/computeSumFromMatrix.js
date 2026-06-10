@@ -1,4 +1,4 @@
-import matrix from "/linear-solver/lib/mathObjects/matrix.js";
+import matrix from "../mathObjects/matrix.js";
 
 export default class computeSumFromMatrix {
     constructor(mbym, shader, list = null) {
