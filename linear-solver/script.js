@@ -1,5 +1,5 @@
-import ComputeRenderer from "../linear-solver/lib/renderer/ComputeRenderer.js";
-import computeGaussianElimination from "../linear-solver/lib/scene/computeLinearSolutionsBackSubstitutions.js";
+import ComputeRenderer from "/linear-solver/lib/renderer/ComputeRenderer.js";
+import computeGaussianElimination from "/linear-solver/lib/scene/computeLinearSolutionsBackSubstitutions.js";
 
 let renderer = null;
 let GaussianElimination = null;

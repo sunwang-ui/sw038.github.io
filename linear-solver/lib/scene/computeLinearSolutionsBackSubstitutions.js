@@ -1,4 +1,4 @@
-import matrix from "../linear-solver/lib/mathObjects/matrix.js";
+import matrix from "/linear-solver/lib/mathObjects/matrix.js";
 
 export default class computeGaussianElimination {
     constructor(n, m, shader = GaussianElimination, listA = null, listB = null) {
