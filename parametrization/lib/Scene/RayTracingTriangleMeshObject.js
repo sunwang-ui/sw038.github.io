@@ -21,8 +21,8 @@
  *                                anything the license permits.
  */
 
-import SceneObject from "../lib/Scene/SceneObject.js"
-import TriangleMesh from "../lib/DS/TriangleMesh.js"
+import SceneObject from "/parametrization/lib/Scene/SceneObject.js"
+import TriangleMesh from "/parametrization/lib/DS/TriangleMesh.js"
 
 export default class RayTracingTriangleMeshObject extends SceneObject {
   constructor(device, canvasFormat, filename, camera, shaderFile) {
