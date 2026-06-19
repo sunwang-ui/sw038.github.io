@@ -21,9 +21,9 @@
  *                                anything the license permits.
  */
 
-import Renderer from './lib/Viz/RayTracer.js'
-import Camera from './lib/Viz/3DCamera.js'
-import RayTracingTriangleMeshObject from './lib/Scene/RayTracingTriangleMeshObject.js'
+import Renderer from "./lib/Viz/RayTracer.js";
+import Camera from "./lib/Viz/3DCamera.js";
+import RayTracingTriangleMeshObject from "./lib/Scene/RayTracingTriangleMeshObject.js";
 
 const algorithmSteps = [
   {
