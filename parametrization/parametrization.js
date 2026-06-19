@@ -130,9 +130,9 @@ async function init() {
   var mesh = new RayTracingTriangleMeshObject(
       renderer._device,
       renderer._canvasFormat,
-      '/parametrization/assets/TOSCA/sphere.ply',
+      new URL("./assets/TOSCA/sphere.ply", import.meta.url).href,
       camera,
-      '/parametrization/lib/Shaders/tracemesh.wgsl'
+      new URL("./lib/Shaders/tracemesh.wgsl", import.meta.url).href
   );
   await renderer.setTracerObject(mesh);
   const mraTopology = buildMraTopology(mesh._mesh, 31);
