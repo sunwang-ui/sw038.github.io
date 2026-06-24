@@ -21,7 +21,7 @@
  *                                anything the license permits.
  */
  
-import PlyIO from "./lib/IO/PlyIO.js"
+import PlyIO from "../IO/PlyIO.js"
 
 const faceEdgeKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
 
