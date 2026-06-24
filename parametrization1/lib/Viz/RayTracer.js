@@ -21,7 +21,7 @@
  *                                anything the license permits.
  */
 
-import Renderer from "./lib/Viz/2DRenderer.js"
+import Renderer from "./2DRenderer.js";
 
 export default class RayTracer extends Renderer {
   constructor(canvas) {
@@ -147,9 +147,9 @@ export default class RayTracer extends Renderer {
         resource: { buffer: this._outputSizeBuffer }
       }],
     });
+    super.resizeCanvas();
     // update the image size in the Shader
     this._device.queue.writeBuffer(this._outputSizeBuffer, 0, new Float32Array([width, height]));
-    super.resizeCanvas();
   }
   
   async setTracerObject(obj) {

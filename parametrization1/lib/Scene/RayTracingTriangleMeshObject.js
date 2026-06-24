@@ -21,8 +21,8 @@
  *                                anything the license permits.
  */
 
-import SceneObject from "./lib/Scene/SceneObject.js"
-import TriangleMesh from "./lib/DS/TriangleMesh.js"
+import SceneObject from "./SceneObject.js";
+import TriangleMesh from "../DS/TriangleMesh.js";
 
 export default class RayTracingTriangleMeshObject extends SceneObject {
   constructor(device, canvasFormat, filename, camera, shaderFile) {
@@ -32,7 +32,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     this._overlayMode = 0;
     this._meshLineThickness = 0.018;
     this._voronoiLineThickness = 0.028;
-    this._delaunayLineThickness = 0.035;
   }
   
   async createGeometry() {
@@ -43,7 +42,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     this._vertices = this._mesh._vertices.flat();
     this._triangles = this._mesh._triangles.flat();
     this._voronoiBoundaryFlags = new Uint32Array(this._numT);
-    this._delaunayPathFlags = new Uint32Array(this._numT);
     // Create vertex buffer to store the vertices in GPU
     this._vertexBuffer = this._device.createBuffer({
       label: "Vertices Normals and More",
@@ -107,14 +105,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     });
     new Uint32Array(this._voronoiBoundaryBuffer.getMappedRange()).set(this._voronoiBoundaryFlags);
     this._voronoiBoundaryBuffer.unmap();
-    this._delaunayPathBuffer = this._device.createBuffer({
-      label: "Delaunay Path Flags " + this.getName(),
-      size: Math.max(1, this._delaunayPathFlags.length) * Uint32Array.BYTES_PER_ELEMENT,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true
-    });
-    new Uint32Array(this._delaunayPathBuffer.getMappedRange()).set(this._delaunayPathFlags);
-    this._delaunayPathBuffer.unmap();
     this.writeOverlayBuffer();
   }
 
@@ -124,7 +114,7 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     view.setUint32(0, this._overlayMode, true);
     view.setFloat32(4, this._meshLineThickness, true);
     view.setFloat32(8, this._voronoiLineThickness, true);
-    view.setFloat32(12, this._delaunayLineThickness, true);
+    view.setFloat32(12, 0, true);
     this._device.queue.writeBuffer(this._overlayBuffer, 0, buffer);
   }
 
@@ -132,8 +122,7 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     const modes = {
       none: 0,
       original: 1,
-      voronoi: 2,
-      delaunay: 3
+      voronoi: 2
     };
     this._overlayMode = typeof mode === "number" ? mode : modes[mode] ?? 0;
 
@@ -157,20 +146,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     }
     else if (this.sameUndirectedEdge(edge, tri[0], tri[1])) {
       this._voronoiBoundaryFlags[faceIndex] |= 4;
-    }
-  }
-
-  markDelaunayPathEdge(faceIndex, edge) {
-    const tri = this._mesh._triangles[faceIndex];
-
-    if (this.sameUndirectedEdge(edge, tri[1], tri[2])) {
-      this._delaunayPathFlags[faceIndex] |= 1;
-    }
-    else if (this.sameUndirectedEdge(edge, tri[2], tri[0])) {
-      this._delaunayPathFlags[faceIndex] |= 2;
-    }
-    else if (this.sameUndirectedEdge(edge, tri[0], tri[1])) {
-      this._delaunayPathFlags[faceIndex] |= 4;
     }
   }
 
@@ -213,44 +188,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
 
     if (this._voronoiBoundaryBuffer) {
       this._device.queue.writeBuffer(this._voronoiBoundaryBuffer, 0, this._voronoiBoundaryFlags);
-    }
-  }
-
-  setDelaunayOverlay(voronoi, embedding, dualGraph = null) {
-    if (!voronoi || !embedding) {
-      return;
-    }
-
-    const graph = dualGraph ?? this._mesh._faceDualGraph ?? this._mesh.buildFaceDualGraph();
-    this._delaunayPathFlags.fill(0);
-
-    for (const siteFace of voronoi.siteFaces) {
-      this._delaunayPathFlags[siteFace] |= 8;
-    }
-
-    for (const path of embedding.paths) {
-      for (let i = 0; i < path.facePath.length - 1; ++i) {
-        const face = path.facePath[i];
-        const nextFace = path.facePath[i + 1];
-        const neighbor = graph.faceNeighbors[face].find(
-            item => item.face === nextFace
-        );
-
-        if (!neighbor) {
-          continue;
-        }
-
-        this.markDelaunayPathEdge(face, neighbor.edge);
-        this.markDelaunayPathEdge(nextFace, neighbor.edge);
-      }
-    }
-
-    if (this._delaunayPathBuffer) {
-      this._device.queue.writeBuffer(
-          this._delaunayPathBuffer,
-          0,
-          this._delaunayPathFlags
-      );
     }
   }
   
@@ -298,10 +235,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
         binding: 5,
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage"} // Voronoi boundary flags
-      }, {
-        binding: 6,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage"} // Delaunay path flags
       }]
     });
     this._pipelineLayout = this._device.createPipelineLayout({
@@ -343,10 +276,6 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
       {
         binding: 5,
         resource: { buffer: this._voronoiBoundaryBuffer }
-      },
-      {
-        binding: 6,
-        resource: { buffer: this._delaunayPathBuffer }
       }
       ],
     });

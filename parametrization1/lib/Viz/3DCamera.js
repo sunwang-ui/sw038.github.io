@@ -21,7 +21,7 @@
  *                                anything the license permits.
  */
 
-import PGA3D from './lib/Math/PGA3D.js'
+import PGA3D from "../Math/PGA3D.js";
 
 export default class Camera {
   constructor(width, height) {
@@ -51,6 +51,7 @@ export default class Camera {
   }
   moveFocaly(d){
     this._focal[1] = this._focal[1]+ d;
+    console.log(this._focal[1])
   }
   moveX(d) {
     // TODO: write code to move the camera in the x-direction

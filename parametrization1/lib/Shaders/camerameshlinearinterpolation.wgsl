@@ -1,10 +1,10 @@
 /*
  * Copyright (c) 2026 Sing Chun LEE @ Bucknell University. CC BY-NC 4.0.
- *
+ * 
  * This code is provided mainly for educational purposes at University of the Pacific.
  *
  * This code is licensed under the Creative Commons Attribution-NonCommercial 4.0
- * International License. To view a copy of the license, visit
+ * International License. To view a copy of the license, visit 
  *   https://creativecommons.org/licenses/by-nc/4.0/
  * or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
  *
@@ -16,33 +16,33 @@
  *  - Attribution: You must give appropriate credit, provide a link to the license,
  *                 and indicate if changes were made.
  *  - NonCommercial: You may not use the material for commercial purposes.
- *  - No additional restrictions: You may not apply legal terms or technological
+ *  - No additional restrictions: You may not apply legal terms or technological 
  *                                measures that legally restrict others from doing
  *                                anything the license permits.
  */
 
 // struct to sture 3D PGA multivector
 struct MultiVector {
-  s: f32,
-  exey: f32,
-  exez: f32,
-  eyez: f32,
-  eoex: f32,
-  eoey: f32,
-  eoez: f32,
-  exeyez: f32,
-  eoexey: f32,
-  eoexez: f32,
+  s: f32, 
+  exey: f32, 
+  exez: f32, 
+  eyez: f32, 
+  eoex: f32, 
+  eoey: f32, 
+  eoez: f32, 
+  exeyez: f32, 
+  eoexey: f32, 
+  eoexez: f32, 
   eoeyez: f32,
-  ex: f32,
-  ey: f32,
-  ez: f32,
+  ex: f32, 
+  ey: f32, 
+  ez: f32, 
   eo: f32,
   eoexeyez: f32
 }
 
-// the geometric product
-fn geometricProduct(a: MultiVector, b: MultiVector) -> MultiVector {
+// the geometric product 
+fn geometricProduct(a: MultiVector, b: MultiVector) -> MultiVector { 
   // The geometric product rules are:
   //   1. eoeo = 0, exex = 1 and eyey = 1, ezez = 1
   //   2. eoex + exeo = 0, eoey + eyeo = 0, eoez + ezeo = 0
@@ -166,7 +166,7 @@ fn extractRotor(m: MultiVector) -> MultiVector {
 fn createPoint(p: vec3f) -> MultiVector {
   // Given a point in 3D with coordinates (x, y, z)
   // A point in PGA is given by exeyez + x eoezey + y eoexez + z eoeyex
-  // In code, we always store the coefficents of
+  // In code, we always store the coefficents of 
   //    scalar, exey, exez, eyez, eoex, eoey, eoez, exeyez, eoexey, eoexez, eoeyez, ex, ey, ez, eo, eoexeyez
   return MultiVector(0, 0, 0, 0, 0, 0, 0, 1, -p.z, p.y, -p.x, 0, 0, 0, 0, 0);
 }
@@ -180,17 +180,17 @@ fn extractPoint(p: MultiVector) -> vec3f {
 fn createPlane(n: vec3f, d: f32) -> MultiVector {
   // Given a plane in 3D with normal (nx, ny, nz) and distance from the origin d
   // A plane in PGA is given by nx ex + ny ey + nz ez - deo
-  // In code, we always store the coefficents of
+  // In code, we always store the coefficents of 
   //    scalar, exey, exez, eyez, eoex, eoey, eoez, exeyez, eoexey, eoexez, eoeyez, ex, ey, ez, eo, eoexeyez
   return MultiVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, n.x, n.y, n.z, -d, 0);
 }
 
 fn createPlaneFromPoints(p1: vec3f, p2: vec3f, p3: vec3f) -> MultiVector {
   // Given three poitns (x1, y1, z1), (x2, y2, z2), (x3, y3, z3)
-  // A plane in PGA is given by
-  //        ((y2 * z3 - y3 * z2) -      (y1 * z3 - y3 * z1) +      (y1 * z2 - y2 * z1)) ex
-  // -      ((x2 * z3 - x3 * z2) -      (x1 * z3 - x3 * z1) +      (x1 * z2 - x2 * z1)) ey
-  // +      ((x2 * y3 - x3 * y2) -      (x1 * y3 - x3 * y1) +      (x1 * y2 - x2 * y1)) ez
+  // A plane in PGA is given by 
+  //        ((y2 * z3 - y3 * z2) -      (y1 * z3 - y3 * z1) +      (y1 * z2 - y2 * z1)) ex 
+  // -      ((x2 * z3 - x3 * z2) -      (x1 * z3 - x3 * z1) +      (x1 * z2 - x2 * z1)) ey 
+  // +      ((x2 * y3 - x3 * y2) -      (x1 * y3 - x3 * y1) +      (x1 * y2 - x2 * y1)) ez 
   // + (x1 * (y2 * z3 - y3 * z2) - x2 * (y1 * z3 - y3 * z1) + x3 * (y1 * z2 - y2 * z1)) eo
   let nx =          (p2[1] * p3[2] - p3[1] * p2[2]) -         (p1[1] * p3[2] - p3[1] * p1[2]) +         (p1[1] * p2[2] - p2[1] * p1[2]);
   let ny =          (p2[0] * p3[2] - p3[0] * p2[2]) -         (p1[0] * p3[2] - p3[0] * p1[2]) +         (p1[0] * p2[2] - p2[0] * p1[2]);
@@ -259,7 +259,7 @@ fn isInside(v0: vec3f, v1: vec3f, v2: vec3f, p: vec3f) -> vec4f {
   let areap12 = plane012.ex * planep12.ex + plane012.ey * planep12.ey + plane012.ez * planep12.ez + plane012.eo * planep12.eo;
   let area0p2 = plane012.ex * plane0p2.ex + plane012.ey * plane0p2.ey + plane012.ez * plane0p2.ez + plane012.eo * plane0p2.eo;
   let area01p = plane012.ex * plane01p.ex + plane012.ey * plane01p.ey + plane012.ez * plane01p.ez + plane012.eo * plane01p.eo;
-
+  
   // compute barycentric coordinates
   let lambda1 = areap12 / area012;
   let lambda2 = area0p2 / area012;
@@ -267,247 +267,53 @@ fn isInside(v0: vec3f, v1: vec3f, v2: vec3f, p: vec3f) -> vec4f {
   return vec4f(lambda1, lambda2, lambda3, f32(lambda1 >= 0 && lambda1 <= 1 && lambda2 >= 0 && lambda2 <= 1 && lambda3 >= 0 && lambda3 <= 1));
 }
 
-// a helper function to get the hit point of a ray to a triangle
-fn triangleRayHitCheck(s: vec3f, d: vec3f, v1: vec3f, v2: vec3f, v3: vec3f, ct: f32) -> vec4f {
-  // Step 1: Construct the ray as a line in PGA
-  let L = createLine(s, d);
-  // Step 2: Construct the plane in PGA
-  let P = createPlaneFromPoints(v1, v2, v3); // we only need three points to define a plane
-  // Step 3: Compute the intersection info
-  var hitInfo = linePlaneIntersection(L, P);
-  if (hitInfo.hit) {
-    // Step 4: Check if the hit point within the triangle
-    let triInfo = isInside(v1, v2, v3, hitInfo.p);
-    if (bool(triInfo.w)) {
-      var nt: f32 = -1.;
-      // pick one axis to compute the t value
-      if (d.x > EPSILON) {
-        nt = (hitInfo.p.x - s.x) / d.x;
-      }
-      else if (d.y > EPSILON) {
-        nt = (hitInfo.p.y - s.y) / d.y;
-      }
-      else {
-        nt = (hitInfo.p.z - s.z) / d.z;
-      }
-      // return the hit cases
-      if (nt < 0) {
-        return vec4f(ct, -1, -1., -1.); // Case 1: the ray has already passed the face, no hit
-      }
-      else if (ct < 0) {
-        return vec4f(nt, triInfo.xyz); // Case 2: the first hit is nt, and say it hits the new face
-      }
-      else {
-        if (nt < ct) {
-          return vec4f(nt, triInfo.xyz); // Case 3: the closer is nt, and say it hits the new face first
-        }
-        else {
-          return vec4f(ct, -1., -1., -1.); // Case 4: the closer is ct, and say it hits the old face first
-        }
-      }
-    }
-  }
-  return vec4f(ct, -1., -1., -1.); // Default Case: no hit
-}
-
 // struct to store 3D PGA pose
 struct Camera {
   motor: MultiVector,
   focal: vec2f,
   res: vec2f,
+  t: f32,
+  dummy: f32
 }
 
-struct Overlay {
-  mode: u32,
-  meshLineThickness: f32,
-  voronoiLineThickness: f32,
-  delaunayLineThickness: f32,
+// binding the camera pose
+@group(0) @binding(0) var<uniform> cameraPose: Camera;
+
+struct VertexOut {
+  @builtin(position) pos: vec4f,
+  @location(0) normal: vec3f,
 }
 
-@group(0) @binding(0) var<uniform> cameraPose: Camera;               // camera pose
-@group(0) @binding(1) var<storage> vertices: array<array<f32, 6>>;   // vertices
-@group(0) @binding(2) var<storage> triangles: array<u32>;            // triangles
-@group(0) @binding(3) var outTexture: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(4) var<uniform> overlay: Overlay;                 // overlay mode and widths
-@group(0) @binding(5) var<storage> voronoiBoundaryFlags: array<u32>;  // per-face edge flags
-@group(0) @binding(6) var<storage> delaunayPathFlags: array<u32>;     // per-face centroid-to-edge flags
-
-fn lineBlend(edgeDistance: f32, thickness: f32) -> f32 {
-  return 1.0 - smoothstep(thickness, thickness * 1.8, edgeDistance);
+@vertex // this compute the scene coordiante of each input vertex
+fn vertexMain(@location(0) srcpos: vec3f, @location(1) srcnormal: vec3f, @location(2) tgtpos: vec3f, @location(3) tgtnormal: vec3f) -> VertexOut {
+  // interpolate the vertices
+  var interpolatePt = srcpos * (1 - cameraPose.t) + tgtpos * (cameraPose.t);
+  // transform and project 
+  var transformedPt = applyMotorToPoint(interpolatePt, reverse(cameraPose.motor));
+  var projectedPt = vec2f(transformedPt.x/transformedPt.z, transformedPt.y/transformedPt.z) * cameraPose.focal;
+  // compute Proper Depth for WebGPU Clip Space
+  var near = 0.1;  // Adjust as needed
+  var far = 100.0; // Adjust as needed
+  // Map depth to WebGPU NDC range [0, 1] for depth testing
+  var depth = (transformedPt.z - near) / (far - near); // Normalize Z depth
+  var clipDepth = depth; // WebGPU expects depth in range [0, 1]
+  // Fill in the output
+  var out: VertexOut;
+  out.pos = vec4f(projectedPt, clipDepth, 1);
+  // interpolate the normal
+  out.normal = srcnormal * (1 - cameraPose.t) + tgtnormal * (cameraPose.t);
+  return out;
 }
 
-fn shadedMeshColor(normal: vec3f, rayDir: vec3f) -> vec3f {
-  var n = normal;
-  let viewDir = normalize(-rayDir);
-
-  if (dot(n, rayDir) > 0) {
-    n = -n;
-  }
-
-  let viewLight = max(dot(n, viewDir), 0.0);
-  let warmLight = max(dot(n, normalize(vec3f(-0.35, 0.45, -0.82))), 0.0);
-  let shade = 0.34 + 0.46 * viewLight + 0.2 * warmLight;
-  let base = vec3f(0.72, 0.49, 0.38);
-
-  return base * shade + vec3f(0.08, 0.06, 0.05);
+@fragment // this compute the color of each pixel
+fn fragmentMain(@location(0) normal: vec3f) -> @location(0) vec4f {
+  // TODO: Modify the fragment shader to implement a shader model to color the mesh using the normal
+  
+  return vec4f((normal + 1) * 0.5, 1); // simple normal color
+  //return vec4f(100.0, 100,100,100);
 }
 
-fn applyOriginalMeshOverlay(color: vec3f, weights: vec3f) -> vec3f {
-  let edgeDistance = min(weights.x, min(weights.y, weights.z));
-  let line = lineBlend(edgeDistance, overlay.meshLineThickness) * 0.82;
-  let lineColor = vec3f(0.045, 0.037, 0.032);
-
-  return color * (1.0 - line) + lineColor * line;
-}
-
-fn applyVoronoiBoundaryOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> vec3f {
-  let flags = voronoiBoundaryFlags[faceIndex];
-  var edgeDistance = 1.0;
-
-  if ((flags & 1u) != 0u) {
-    edgeDistance = min(edgeDistance, weights.x);
-  }
-
-  if ((flags & 2u) != 0u) {
-    edgeDistance = min(edgeDistance, weights.y);
-  }
-
-  if ((flags & 4u) != 0u) {
-    edgeDistance = min(edgeDistance, weights.z);
-  }
-
-  let line = lineBlend(edgeDistance, overlay.voronoiLineThickness);
-  let lineColor = vec3f(1.0, 0.91, 0.08);
-
-  return color * (1.0 - line) + lineColor * line;
-}
-
-fn pointSegmentDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
-  let ab = b - a;
-  let t = clamp(dot(p - a, ab) / max(dot(ab, ab), EPSILON), 0.0, 1.0);
-  return length(p - (a + t * ab));
-}
-
-fn applyDelaunayOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> vec3f {
-  let flags = delaunayPathFlags[faceIndex];
-  let p = vec2f(weights.y, weights.z);
-  let center = vec2f(1.0 / 3.0, 1.0 / 3.0);
-  var pathDistance = 1.0;
-
-  if ((flags & 1u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.5)));
-  }
-
-  if ((flags & 2u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.0, 0.5)));
-  }
-
-  if ((flags & 4u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.0)));
-  }
-
-  let pathLine = lineBlend(pathDistance, overlay.delaunayLineThickness);
-  let pathColor = vec3f(0.05, 0.9, 1.0);
-  var result = color * (1.0 - pathLine) + pathColor * pathLine;
-
-  if ((flags & 8u) != 0u) {
-    let siteDot = 1.0 - smoothstep(
-        overlay.delaunayLineThickness * 1.7,
-        overlay.delaunayLineThickness * 2.5,
-        length(p - center)
-    );
-    let siteColor = vec3f(1.0, 0.28, 0.05);
-    result = result * (1.0 - siteDot) + siteColor * siteDot;
-  }
-
-  return result;
-}
-
-// a function to trace the triangle mesh and get the color
-fn getColor(p: vec3f, d: vec3f) -> vec4f {
-  var color = vec4f(0.f/255, 56.f/255, 101.f/255, 1.);
-
-  var t = -1.;
-  var minIdx = -1;
-  var normal = vec3f(0, 0, 0);
-  var weights = vec3f(0, 0, 0);
-  for (var i = 0; i < i32(arrayLength(&triangles)); i = i + 3) { // for every three vertices
-    let v0 = vec3f(vertices[triangles[i    ]][0], vertices[triangles[i    ]][1], vertices[triangles[i    ]][2]);
-    let v1 = vec3f(vertices[triangles[i + 1]][0], vertices[triangles[i + 1]][1], vertices[triangles[i + 1]][2]);
-    let v2 = vec3f(vertices[triangles[i + 2]][0], vertices[triangles[i + 2]][1], vertices[triangles[i + 2]][2]);
-    let info = triangleRayHitCheck(p, d, v0, v1, v2, t);
-    if (info.y >= -EPSILON) {
-      t = info.x;
-      minIdx = i;
-      weights = vec3f(1 - info.z - info.w, info.z, info.w);
-    }
-  }
-
-  if (minIdx >= 0) {
-    let n0 = vec3f(vertices[triangles[minIdx    ]][3], vertices[triangles[minIdx    ]][4], vertices[triangles[minIdx    ]][5]);
-    let n1 = vec3f(vertices[triangles[minIdx + 1]][3], vertices[triangles[minIdx + 1]][4], vertices[triangles[minIdx + 1]][5]);
-    let n2 = vec3f(vertices[triangles[minIdx + 2]][3], vertices[triangles[minIdx + 2]][4], vertices[triangles[minIdx + 2]][5]);
-    normal = normalize(weights.x * n0 + weights.y * n1 + weights.z * n2); // interpolate the normal
-    var meshColor = shadedMeshColor(normal, d);
-
-    if (overlay.mode == 1u) {
-      meshColor = applyOriginalMeshOverlay(meshColor, weights);
-    }
-    else if (overlay.mode == 2u) {
-      meshColor = applyVoronoiBoundaryOverlay(meshColor, weights, u32(minIdx / 3));
-    }
-    else if (overlay.mode == 3u) {
-      meshColor = applyOriginalMeshOverlay(meshColor, weights);
-      meshColor = applyDelaunayOverlay(meshColor, weights, u32(minIdx / 3));
-    }
-
-    color = vec4f(meshColor, 1);
-  }
-
-  return color;
-}
-
-@compute
-@workgroup_size(16, 16)
-fn computeOrthogonalMain(@builtin(global_invocation_id) global_id: vec3u) {
-  // get the pixel coordiantes
-  let uv = vec2i(global_id.xy);
-  let texDim = vec2i(textureDimensions(outTexture));
-  if (uv.x < texDim.x && uv.y < texDim.y) {
-    // compute the pixel size
-    let psize = vec2f(2, 2) / cameraPose.res.xy;
-    // orthogonal camera ray sent from each pixel center at z = 0
-    var spt = vec3f((f32(uv.x) + 0.5) * psize.x - 1, (f32(uv.y) + 0.5) * psize.y - 1, 0);
-    var rdir = vec3f(0, 0, 1);
-    // apply transformation
-    spt = applyMotorToPoint(spt, cameraPose.motor);
-    rdir = applyMotorToDir(rdir, cameraPose.motor);
-    // compute the intersection to the object
-    var color = getColor(spt, rdir);
-    // assign colors
-    textureStore(outTexture, uv, color);
-  }
-}
-
-@compute
-@workgroup_size(16, 16)
-fn computeProjectiveMain(@builtin(global_invocation_id) global_id: vec3u) {
-  let uv = vec2i(global_id.xy);
-  let texDim = vec2i(textureDimensions(outTexture));
-  if (uv.x < texDim.x && uv.y < texDim.y) {
-    let psize = vec2f(2, 2) * cameraPose.focal.xy / cameraPose.res.xy;
-
-    var spt = vec3f(0, 0, 0);
-    var rdir = vec3f(
-      (f32(uv.x) + 0.5) * psize.x - cameraPose.focal.x,
-      (f32(uv.y) + 0.5) * psize.y - cameraPose.focal.y,
-      1
-    );
-
-    spt = applyMotorToPoint(spt, cameraPose.motor);
-    rdir = applyMotorToDir(rdir, cameraPose.motor);
-
-    let color = getColor(spt, rdir);
-    textureStore(outTexture, uv, color);
-  }
+@fragment
+fn fragmentLineMain() -> @location(0) vec4f {
+  return vec4f(0.0, 0.0, 0.0, 1.0);
 }

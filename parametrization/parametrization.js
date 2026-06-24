@@ -21,9 +21,9 @@
  *                                anything the license permits.
  */
 
-import Renderer from "./lib/Viz/RayTracer.js";
-import Camera from "./lib/Viz/3DCamera.js";
-import RayTracingTriangleMeshObject from "./lib/Scene/RayTracingTriangleMeshObject.js";
+import Renderer from './lib/Viz/RayTracer.js'
+import Camera from './lib/Viz/3DCamera.js'
+import RayTracingTriangleMeshObject from './lib/Scene/RayTracingTriangleMeshObject.js'
 
 const algorithmSteps = [
   {
@@ -33,6 +33,10 @@ const algorithmSteps = [
   {
     id: "voronoi",
     title: "Voronoi diagram"
+  },
+  {
+    id: "delaunay",
+    title: "Delaunay triangulation"
   }
 ];
 
@@ -41,67 +45,24 @@ function currentStep() {
   return algorithmSteps.find(item => item.id === requested) ?? null;
 }
 
-function countVoronoiBoundaryEdges(graph, voronoi) {
-  let boundaryEdges = 0;
-
-  for (const edge of graph.primalEdges) {
-    const owners = new Set();
-
-    for (const face of edge.faces) {
-      const owner = voronoi.owners[face];
-
-      if (owner >= 0) {
-        owners.add(owner);
-      }
-    }
-
-    if (owners.size > 1) {
-      boundaryEdges += 1;
-    }
-  }
-
-  return boundaryEdges;
-}
-
-function buildMraTopology(mesh, siteCount = 12) {
-  const dualGraph = mesh.buildDualGraph();
-  const siteFaces = mesh.selectFarthestFaceSites(siteCount, 0);
-  const voronoi = mesh.computeFaceVoronoi(siteFaces);
-  const delaunayLike = mesh.buildDelaunayLikeTriangulation(voronoi);
-
-  const summary = {
-    dualGraph: mesh.summarizeFaceDualGraph(voronoi.distances),
-    siteFaces,
-    voronoiTileSizes: voronoi.tiles.map(tile => tile.length),
-    voronoiBoundaryEdges: countVoronoiBoundaryEdges(dualGraph, voronoi),
-    delaunayEdges: delaunayLike.edges.length,
-    delaunayTriangles: delaunayLike.triangles.length,
-    highValenceCorners: delaunayLike.highValenceCorners.length
-  };
-
-  return {
-    dualGraph,
-    siteFaces,
-    voronoi,
-    delaunayLike,
-    summary
-  };
-}
-
 function showPlainMenu() {
   document.body.innerHTML = "";
 
-  for (let i = 0; i < algorithmSteps.length; ++i) {
-    const step = algorithmSteps[i];
+  const menu = document.createElement("div");
+  menu.style.display = "flex";
+  menu.style.flexDirection = "column";
+  menu.style.alignItems = "center";
+  menu.style.gap = "12px";
+  menu.style.width = "100%";
+
+  for (const step of algorithmSteps) {
     const link = document.createElement("a");
     link.href = `#${step.id}`;
     link.textContent = step.title;
-    document.body.appendChild(link);
-
-    if (i < algorithmSteps.length - 1) {
-      document.body.appendChild(document.createElement("br"));
-    }
+    menu.appendChild(link);
   }
+
+  document.body.appendChild(menu);
 }
 
 async function init() {
@@ -114,7 +75,7 @@ async function init() {
   const renderer = new Renderer(canvasTag);
   await renderer.init();
   // Create a 3D Camera
-  var camera = new Camera();
+  const camera = new Camera();
   camera._isProjective = true;
   camera._pose[0] = 0.18809913098812103;
   camera._pose[1] = -0.0767698660492897;
@@ -124,154 +85,176 @@ async function init() {
   camera._pose[5] = 0.29343530535697937;
   camera._pose[6] = 0.6404831409454346;
   camera._pose[15] = 0.20977813005447388;
-  camera._focal[0] = 4;
-  camera._focal[1] = 4;
+  camera._focal[0] = .25;
+  camera._focal[1] = .25;
   // Create a static triangle mesh object
-  var mesh = new RayTracingTriangleMeshObject(
+  const mesh = new RayTracingTriangleMeshObject(
       renderer._device,
       renderer._canvasFormat,
-      new URL("./assets/TOSCA/sphere.ply", import.meta.url).href,
+      './assets/TOSCA/sphere.ply',
       camera,
-      new URL("./lib/Shaders/tracemesh.wgsl", import.meta.url).href
+      './lib/Shaders/tracemesh.wgsl'
   );
   await renderer.setTracerObject(mesh);
-  const mraTopology = buildMraTopology(mesh._mesh, 31);
-  mesh.setVoronoiOverlay(mraTopology.voronoi, mraTopology.dualGraph);
-  window.mraTopology = mraTopology;
-  console.log("MRA topology", mraTopology.summary);
+  const dualGraph = mesh._mesh.buildDualGraph();
+  const partition = mesh._mesh.selectTopologyValidFaceSites({
+    initialSiteCount: 1,
+    firstFace: 0,
+    maxSites: 128
+  });
+
+  if (!partition.validation.isValid) {
+    throw new Error(
+        `Could not construct a topology-valid Voronoi partition within ${partition.siteFaces.length} sites.`
+    );
+  }
+
+  canvasTag.dataset.partitionValid = "true";
+  canvasTag.dataset.siteCount = String(partition.siteFaces.length);
+  canvasTag.dataset.refinementSteps = String(partition.refinementSteps);
+  const baseComplex = mesh._mesh.buildDelaunayLikeTriangulation(partition.voronoi);
+  const baseValidation = mesh._mesh.validateDelaunayLikeTriangulation(baseComplex);
+
+  if (!baseValidation.isValid) {
+    throw new Error("The induced Delaunay base complex is topologically invalid.");
+  }
+
+  canvasTag.dataset.baseComplexValid = "true";
+  canvasTag.dataset.baseVertices = String(baseComplex.siteFaces.length);
+  canvasTag.dataset.baseEdges = String(baseComplex.edges.length);
+  canvasTag.dataset.baseFaces = String(baseComplex.triangles.length);
+  const delaunayEmbedding = mesh._mesh.embedDelaunayPaths(
+      partition.voronoi,
+      baseComplex
+  );
+  const embeddingValidation = mesh._mesh.validateEmbeddedDelaunayPaths(
+      partition.voronoi,
+      baseComplex,
+      delaunayEmbedding
+  );
+
+  if (!embeddingValidation.isValid) {
+    throw new Error("The embedded Delaunay paths intersect or cross invalid Voronoi cuts.");
+  }
+
+  const patchComplex = mesh._mesh.extractBaseFacePatches(
+      partition.voronoi,
+      baseComplex,
+      delaunayEmbedding
+  );
+  const patchValidation = mesh._mesh.validateBaseFacePatches(
+      patchComplex,
+      baseComplex
+  );
+
+  if (!patchValidation.isValid) {
+    throw new Error("The embedded Delaunay paths do not form valid base-face patches.");
+  }
+
+  canvasTag.dataset.patchComplexValid = "true";
+  canvasTag.dataset.patchCount = String(patchComplex.patches.length);
+  canvasTag.dataset.delaunayPathsValid = "true";
+  canvasTag.dataset.delaunayPathCount = String(delaunayEmbedding.paths.length);
+  mesh.setVoronoiOverlay(partition.voronoi, dualGraph);
+  mesh.setDelaunayOverlay(partition.voronoi, delaunayEmbedding, dualGraph);
+
   function updateOverlayFromHash() {
     if (window.location.hash === "#voronoi") {
       mesh.setOverlayMode("voronoi");
-    } else {
+    }
+    else if (window.location.hash === "#delaunay") {
+      mesh.setOverlayMode("delaunay");
+    }
+    else {
       mesh.setOverlayMode("original");
     }
+
+    renderer.render();
   }
 
   window.addEventListener("hashchange", updateOverlayFromHash);
   updateOverlayFromHash();
 
-  let moveSpeed = .1;
-  let rotateSpeed = Math.PI / 36;
-  let focalSpeed= .1;
-  window.addEventListener("keydown", (e) => {
-    switch (e.key){
-      case "w": case "W":
-        camera.moveY(moveSpeed);
-        mesh.updateCameraPose();
-
-        break;
-      case "s": case "S":
-        camera.moveY(-moveSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "a": case "A":
-        camera.moveX(moveSpeed);
-        mesh.updateCameraPose();
-
-        break;
-      case "d": case "D":
-        camera.moveX(-moveSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "e": case "E":
-        camera.moveZ(-moveSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "q": case "Q":
-        camera.moveZ(moveSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "i": case "I":
-        camera.rotateX(rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "k": case "K":
-        camera.rotateX(-rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "j": case "J":
-        camera.rotateY(rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "l": case "L":
-        camera.rotateY(-rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "u": case "U":
-        camera.rotateZ(rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "o": case "O":
-        camera.rotateZ(-rotateSpeed);
-        mesh.updateCameraPose();
-        break;
-      case "[":
-        camera.moveFocalx(focalSpeed);
-        mesh.updateCameraFocal();
-        break;
-      case "]":
-        camera.moveFocalx(-rotateSpeed);
-        mesh.updateCameraFocal();
-        break;
-      case "{":
-        camera.moveFocaly(focalSpeed);
-        mesh.updateCameraFocal();
-        break;
-      case "}":
-        camera.moveFocaly(-focalSpeed);
-        mesh.updateCameraFocal();
-        break;
-    }
-  });
-
-
-  // run animation at 60 fps  
-  var frameCnt = 0;
-  var tgtFPS = 60;
-  var secPerFrame = 1. / tgtFPS;
-  var frameInterval = secPerFrame * 1000;
-  var lastCalled;
-  let renderFrame = () => {
-    let elapsed = Date.now() - lastCalled;
-    if (elapsed > frameInterval) {
-      ++frameCnt;
-      lastCalled = Date.now() - (elapsed % frameInterval);
-      renderer.render();
-    }
-    requestAnimationFrame(renderFrame);
+  const moveSpeed = .1;
+  const rotateSpeed = Math.PI / 36;
+  const focalSpeed = .1;
+  const updatePose = action => {
+    action();
+    mesh.updateCameraPose();
   };
-  lastCalled = Date.now();
-  renderFrame();
-  setInterval(() => { 
-    console.log('fps: ' + frameCnt);
-    frameCnt = 0;
-  }, 1000); // call every 1000 ms
-  return renderer;
+  const updateFocal = action => {
+    action();
+    mesh.updateCameraFocal();
+  };
+  const controls = {
+    w: () => updatePose(() => camera.moveY(moveSpeed)),
+    s: () => updatePose(() => camera.moveY(-moveSpeed)),
+    a: () => updatePose(() => camera.moveX(moveSpeed)),
+    d: () => updatePose(() => camera.moveX(-moveSpeed)),
+    e: () => updatePose(() => camera.moveZ(-moveSpeed)),
+    q: () => updatePose(() => camera.moveZ(moveSpeed)),
+    i: () => updatePose(() => camera.rotateX(rotateSpeed)),
+    k: () => updatePose(() => camera.rotateX(-rotateSpeed)),
+    j: () => updatePose(() => camera.rotateY(rotateSpeed)),
+    l: () => updatePose(() => camera.rotateY(-rotateSpeed)),
+    u: () => updatePose(() => camera.rotateZ(rotateSpeed)),
+    o: () => updatePose(() => camera.rotateZ(-rotateSpeed)),
+    "[": () => updateFocal(() => camera.moveFocalx(focalSpeed)),
+    "]": () => updateFocal(() => camera.moveFocalx(-focalSpeed)),
+    "{": () => updateFocal(() => camera.moveFocaly(focalSpeed)),
+    "}": () => updateFocal(() => camera.moveFocaly(-focalSpeed))
+  };
+
+  window.addEventListener("keydown", (e) => {
+    const control = controls[e.key.toLowerCase()];
+
+    if (!control) {
+      return;
+    }
+
+    control();
+    renderer.render();
+  });
 }
 
 let appStarted = false;
+let appStarting = false;
 
 function startAppForSelectedStep() {
-  if (appStarted) {
-    return;
-  }
-
   const step = currentStep();
 
   if (!step) {
+    if (appStarted || appStarting) {
+      window.location.reload();
+      return;
+    }
+
     showPlainMenu();
     return;
   }
 
-  appStarted = true;
-  init().then( ret => {
-  console.log(ret);
-  }).catch( error => {
-    const pTag = document.createElement('p');
-    pTag.innerHTML = navigator.userAgent + "</br>" + error.message;
-    document.body.appendChild(pTag);
-    document.getElementById("renderCanvas")?.remove();
-  });
+  if (appStarted || appStarting) {
+    return;
+  }
+
+  appStarting = true;
+  init()
+      .then(() => {
+        appStarted = true;
+      })
+      .catch(error => {
+        const pTag = document.createElement("p");
+        pTag.append(
+            document.createTextNode(navigator.userAgent),
+            document.createElement("br"),
+            document.createTextNode(error.message)
+        );
+        document.body.appendChild(pTag);
+        document.getElementById("renderCanvas")?.remove();
+      })
+      .finally(() => {
+        appStarting = false;
+      });
 }
 
 window.addEventListener("hashchange", startAppForSelectedStep);

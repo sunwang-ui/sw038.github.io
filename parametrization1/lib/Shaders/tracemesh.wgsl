@@ -321,7 +321,7 @@ struct Overlay {
   mode: u32,
   meshLineThickness: f32,
   voronoiLineThickness: f32,
-  delaunayLineThickness: f32,
+  padding: f32,
 }
 
 @group(0) @binding(0) var<uniform> cameraPose: Camera;               // camera pose
@@ -330,7 +330,6 @@ struct Overlay {
 @group(0) @binding(3) var outTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(4) var<uniform> overlay: Overlay;                 // overlay mode and widths
 @group(0) @binding(5) var<storage> voronoiBoundaryFlags: array<u32>;  // per-face edge flags
-@group(0) @binding(6) var<storage> delaunayPathFlags: array<u32>;     // per-face centroid-to-edge flags
 
 fn lineBlend(edgeDistance: f32, thickness: f32) -> f32 {
   return 1.0 - smoothstep(thickness, thickness * 1.8, edgeDistance);
@@ -382,47 +381,6 @@ fn applyVoronoiBoundaryOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> 
   return color * (1.0 - line) + lineColor * line;
 }
 
-fn pointSegmentDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
-  let ab = b - a;
-  let t = clamp(dot(p - a, ab) / max(dot(ab, ab), EPSILON), 0.0, 1.0);
-  return length(p - (a + t * ab));
-}
-
-fn applyDelaunayOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> vec3f {
-  let flags = delaunayPathFlags[faceIndex];
-  let p = vec2f(weights.y, weights.z);
-  let center = vec2f(1.0 / 3.0, 1.0 / 3.0);
-  var pathDistance = 1.0;
-
-  if ((flags & 1u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.5)));
-  }
-
-  if ((flags & 2u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.0, 0.5)));
-  }
-
-  if ((flags & 4u) != 0u) {
-    pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.0)));
-  }
-
-  let pathLine = lineBlend(pathDistance, overlay.delaunayLineThickness);
-  let pathColor = vec3f(0.05, 0.9, 1.0);
-  var result = color * (1.0 - pathLine) + pathColor * pathLine;
-
-  if ((flags & 8u) != 0u) {
-    let siteDot = 1.0 - smoothstep(
-        overlay.delaunayLineThickness * 1.7,
-        overlay.delaunayLineThickness * 2.5,
-        length(p - center)
-    );
-    let siteColor = vec3f(1.0, 0.28, 0.05);
-    result = result * (1.0 - siteDot) + siteColor * siteDot;
-  }
-
-  return result;
-}
-
 // a function to trace the triangle mesh and get the color
 fn getColor(p: vec3f, d: vec3f) -> vec4f {
   var color = vec4f(0.f/255, 56.f/255, 101.f/255, 1.);
@@ -455,10 +413,6 @@ fn getColor(p: vec3f, d: vec3f) -> vec4f {
     }
     else if (overlay.mode == 2u) {
       meshColor = applyVoronoiBoundaryOverlay(meshColor, weights, u32(minIdx / 3));
-    }
-    else if (overlay.mode == 3u) {
-      meshColor = applyOriginalMeshOverlay(meshColor, weights);
-      meshColor = applyDelaunayOverlay(meshColor, weights, u32(minIdx / 3));
     }
 
     color = vec4f(meshColor, 1);
