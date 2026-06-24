@@ -21,8 +21,8 @@
  *                                anything the license permits.
  */
 
-import SceneObject from "./lib/Scene/SceneObject.js"
-import TriangleMesh from "./lib/DS/TriangleMesh.js"
+import SceneObject from "./SceneObject.js"
+import TriangleMesh from "../DS/TriangleMesh.js"
 
 export default class CameraTriangleMeshLinearInterpolationObject extends SceneObject {
   constructor(device, canvasFormat, srcfile, tgtfile, camera, shaderFile) {
