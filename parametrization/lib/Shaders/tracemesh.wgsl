@@ -331,6 +331,8 @@ struct Overlay {
 @group(0) @binding(4) var<uniform> overlay: Overlay;                 // overlay mode and widths
 @group(0) @binding(5) var<storage> voronoiBoundaryFlags: array<u32>;  // per-face edge flags
 @group(0) @binding(6) var<storage> delaunayPathFlags: array<u32>;     // per-face centroid-to-edge flags
+@group(0) @binding(7) var<storage> delaunaySegmentOffsets: array<u32>; // per-face segment ranges
+@group(0) @binding(8) var<storage> delaunayPathSegments: array<vec4f>; // xy=start, zw=end
 
 fn lineBlend(edgeDistance: f32, thickness: f32) -> f32 {
   return 1.0 - smoothstep(thickness, thickness * 1.8, edgeDistance);
@@ -350,6 +352,22 @@ fn shadedMeshColor(normal: vec3f, rayDir: vec3f) -> vec3f {
   let base = vec3f(0.72, 0.49, 0.38);
 
   return base * shade + vec3f(0.08, 0.06, 0.05);
+}
+
+fn shadedBaseMeshColor(normal: vec3f, rayDir: vec3f) -> vec3f {
+  var n = normal;
+  let viewDir = normalize(-rayDir);
+
+  if (dot(n, rayDir) > 0) {
+    n = -n;
+  }
+
+  let viewLight = max(dot(n, viewDir), 0.0);
+  let warmLight = max(dot(n, normalize(vec3f(-0.35, 0.45, -0.82))), 0.0);
+  let shade = 0.38 + 0.42 * viewLight + 0.20 * warmLight;
+  let base = vec3f(0.84, 0.56, 0.45);
+
+  return base * shade + vec3f(0.10, 0.06, 0.045);
 }
 
 fn applyOriginalMeshOverlay(color: vec3f, weights: vec3f) -> vec3f {
@@ -388,26 +406,41 @@ fn pointSegmentDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
   return length(p - (a + t * ab));
 }
 
-fn applyDelaunayOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> vec3f {
+fn applyDelaunayOverlay(
+    color: vec3f,
+    weights: vec3f,
+    faceIndex: u32,
+    pathColor: vec3f,
+    siteColor: vec3f
+) -> vec3f {
   let flags = delaunayPathFlags[faceIndex];
   let p = vec2f(weights.y, weights.z);
   let center = vec2f(1.0 / 3.0, 1.0 / 3.0);
   var pathDistance = 1.0;
+  let segmentStart = delaunaySegmentOffsets[faceIndex];
+  let segmentEnd = delaunaySegmentOffsets[faceIndex + 1u];
 
-  if ((flags & 1u) != 0u) {
+  for (var segmentIndex = segmentStart; segmentIndex < segmentEnd; segmentIndex = segmentIndex + 1u) {
+    let segment = delaunayPathSegments[segmentIndex];
+    pathDistance = min(
+        pathDistance,
+        pointSegmentDistance(p, segment.xy, segment.zw)
+    );
+  }
+
+  if (segmentStart == segmentEnd && (flags & 1u) != 0u) {
     pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.5)));
   }
 
-  if ((flags & 2u) != 0u) {
+  if (segmentStart == segmentEnd && (flags & 2u) != 0u) {
     pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.0, 0.5)));
   }
 
-  if ((flags & 4u) != 0u) {
+  if (segmentStart == segmentEnd && (flags & 4u) != 0u) {
     pathDistance = min(pathDistance, pointSegmentDistance(p, center, vec2f(0.5, 0.0)));
   }
 
   let pathLine = lineBlend(pathDistance, overlay.delaunayLineThickness);
-  let pathColor = vec3f(0.05, 0.9, 1.0);
   var result = color * (1.0 - pathLine) + pathColor * pathLine;
 
   if ((flags & 8u) != 0u) {
@@ -416,7 +449,6 @@ fn applyDelaunayOverlay(color: vec3f, weights: vec3f, faceIndex: u32) -> vec3f {
         overlay.delaunayLineThickness * 2.5,
         length(p - center)
     );
-    let siteColor = vec3f(1.0, 0.28, 0.05);
     result = result * (1.0 - siteDot) + siteColor * siteDot;
   }
 
@@ -458,7 +490,33 @@ fn getColor(p: vec3f, d: vec3f) -> vec4f {
     }
     else if (overlay.mode == 3u) {
       meshColor = applyOriginalMeshOverlay(meshColor, weights);
-      meshColor = applyDelaunayOverlay(meshColor, weights, u32(minIdx / 3));
+      meshColor = applyDelaunayOverlay(
+          meshColor,
+          weights,
+          u32(minIdx / 3),
+          vec3f(1.0, 0.93, 0.05),
+          vec3f(1.0, 1.0, 1.0)
+      );
+    }
+    else if (overlay.mode == 4u) {
+      meshColor = applyOriginalMeshOverlay(meshColor, weights);
+      meshColor = applyDelaunayOverlay(
+          meshColor,
+          weights,
+          u32(minIdx / 3),
+          vec3f(1.0, 0.98, 0.06),
+          vec3f(1.0, 1.0, 1.0)
+      );
+    }
+    else if (overlay.mode == 5u) {
+      meshColor = shadedBaseMeshColor(normal, d);
+      meshColor = applyOriginalMeshOverlay(meshColor, weights);
+    }
+    else if (overlay.mode == 6u) {
+      meshColor = applyOriginalMeshOverlay(meshColor, weights);
+    }
+    else if (overlay.mode == 7u) {
+      meshColor = applyOriginalMeshOverlay(meshColor, weights);
     }
 
     color = vec4f(meshColor, 1);

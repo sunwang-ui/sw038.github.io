@@ -22,6 +22,12 @@
  */
  
 import PlyIO from "../IO/PlyIO.js"
+import {
+  buildPatchApproximation,
+  buildPatchRemesh,
+  buildPaperInitialDelaunay,
+  selectHarmonicReadyFaceSites
+} from "../Math/HarmonicMap.js"
 
 const faceEdgeKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
 
@@ -149,8 +155,8 @@ export default class TriangleMesh {
         this._vertices[i][j] *= this._scaleFactor;
       }
     }
-    if (Math.abs(this.surfaceArea() - targetArea) > 0.0001) { // Note: this will recompute the face areas
-      console.log("Something is wrong! The surface area is not as expected!");
+    if (Math.abs(this.surfaceArea() - targetArea) > 0.0001) {
+      throw new Error("Mesh normalization failed to produce unit surface area.");
     }
   }
   
@@ -381,7 +387,7 @@ export default class TriangleMesh {
       }
 
       if (totalArea <= 0) {
-        // fallback to uniform if something goes wrong
+        // Use uniform weights when all incident triangle areas are degenerate.
         const w = 1.0 / neighbors.length;
 
         for (const j of neighbors) {
@@ -1003,6 +1009,10 @@ export default class TriangleMesh {
     };
   }
 
+  selectHarmonicReadyFaceSites(options = {}) {
+    return selectHarmonicReadyFaceSites(this, options);
+  }
+
   buildDelaunayLikeTriangulation(voronoi = this._faceVoronoi) {
     if (!voronoi) {
       throw new Error("Build a face Voronoi diagram before constructing the Delaunay-like triangulation.");
@@ -1209,189 +1219,33 @@ export default class TriangleMesh {
     };
   }
 
-  shortestFacePathBetweenSites(voronoi, ownerA, ownerB) {
-    const graph = this._faceDualGraph ?? this.buildFaceDualGraph();
-    const start = voronoi.siteFaces[ownerA];
-    const target = voronoi.siteFaces[ownerB];
-    const allowedOwners = new Set([ownerA, ownerB]);
-    const distances = new Array(this._numT).fill(Infinity);
-    const previous = new Array(this._numT).fill(-1);
-    const queue = new FacePriorityQueue();
-    distances[start] = 0;
-    queue.push({ face: start, distance: 0 });
-
-    while (queue.size > 0) {
-      const current = queue.pop();
-
-      if (current.distance !== distances[current.face]) {
-        continue;
-      }
-
-      if (current.face === target) {
-        break;
-      }
-
-      for (const neighbor of graph.faceNeighbors[current.face]) {
-        if (!allowedOwners.has(voronoi.owners[neighbor.face])) {
-          continue;
-        }
-
-        const distance = current.distance + neighbor.weight;
-
-        if (distance < distances[neighbor.face]) {
-          distances[neighbor.face] = distance;
-          previous[neighbor.face] = current.face;
-          queue.push({
-            face: neighbor.face,
-            distance
-          });
-        }
-      }
-    }
-
-    if (!Number.isFinite(distances[target])) {
-      throw new Error(`No Delaunay path exists between sites ${ownerA} and ${ownerB}.`);
-    }
-
-    const faces = [];
-
-    for (let face = target; face >= 0; face = previous[face]) {
-      faces.push(face);
-
-      if (face === start) {
-        break;
-      }
-    }
-
-    faces.reverse();
-    return {
-      faces,
-      length: distances[target]
-    };
-  }
-
-  buildBarycentricSubdivision() {
-    const graph = this._faceDualGraph ?? this.buildFaceDualGraph();
-    const vertices = this._vertices.map(vertex => [
-      vertex[0],
-      vertex[1],
-      vertex[2]
-    ]);
-    const originalVertexIndices = Array.from(
-        { length: this._numV },
-        (_, vertex) => vertex
-    );
-    const edgeMidpointIndices = new Map();
-
-    for (const edge of graph.primalEdges) {
-      const key = faceEdgeKey(edge.vertices[0], edge.vertices[1]);
-      edgeMidpointIndices.set(key, vertices.length);
-      vertices.push(this.midpointBetweenVertices(
-          edge.vertices[0],
-          edge.vertices[1]
-      ));
-    }
-
-    const faceCentroidIndices = new Array(this._numT);
-
-    for (let face = 0; face < this._numT; ++face) {
-      faceCentroidIndices[face] = vertices.length;
-      vertices.push(this.faceCentroid(face));
-    }
-
-    const triangles = [];
-    const parentFaces = [];
-
-    for (let face = 0; face < this._numT; ++face) {
-      const [a, b, c] = this._triangles[face];
-      const ab = edgeMidpointIndices.get(faceEdgeKey(a, b));
-      const bc = edgeMidpointIndices.get(faceEdgeKey(b, c));
-      const ca = edgeMidpointIndices.get(faceEdgeKey(c, a));
-      const center = faceCentroidIndices[face];
-      const refinedTriangles = [
-        [a, ab, center],
-        [a, center, ca],
-        [b, bc, center],
-        [b, center, ab],
-        [c, ca, center],
-        [c, center, bc]
-      ];
-
-      for (const triangle of refinedTriangles) {
-        triangles.push(triangle);
-        parentFaces.push(face);
-      }
-    }
-
-    return {
-      vertices,
-      triangles,
-      parentFaces,
-      originalVertexIndices,
-      edgeMidpointIndices,
-      faceCentroidIndices
-    };
-  }
-
-  embedDelaunayPaths(
+  buildPaperInitialDelaunay(
       voronoi = this._faceVoronoi,
-      triangulation = this._delaunayLikeTriangulation
+      triangulation = this._delaunayLikeTriangulation,
+      options = {}
   ) {
-    if (!voronoi || !triangulation) {
-      throw new Error("Construct the Voronoi diagram and base complex before embedding Delaunay paths.");
-    }
+    return buildPaperInitialDelaunay(this, voronoi, triangulation, options);
+  }
 
-    const graph = this._faceDualGraph ?? this.buildFaceDualGraph();
-    const subdivision = this.buildBarycentricSubdivision();
-    const barrierEdges = new Set();
-    const paths = [];
+  buildPatchRemesh(
+      triangulation,
+      paperTriangulation,
+      options = {}
+  ) {
+    return buildPatchRemesh(this, triangulation, paperTriangulation, options);
+  }
 
-    for (const baseEdge of triangulation.edges) {
-      const [ownerA, ownerB] = baseEdge.sites;
-      const facePath = this.shortestFacePathBetweenSites(
-          voronoi,
-          ownerA,
-          ownerB
-      );
-      const vertexPath = [
-        subdivision.faceCentroidIndices[facePath.faces[0]]
-      ];
-
-      for (let i = 0; i < facePath.faces.length - 1; ++i) {
-        const face = facePath.faces[i];
-        const nextFace = facePath.faces[i + 1];
-        const neighbor = graph.faceNeighbors[face].find(
-            item => item.face === nextFace
-        );
-
-        if (!neighbor) {
-          throw new Error(`Faces ${face} and ${nextFace} do not share an edge.`);
-        }
-
-        const midpoint = subdivision.edgeMidpointIndices.get(
-            faceEdgeKey(neighbor.edge[0], neighbor.edge[1])
-        );
-        const nextCentroid = subdivision.faceCentroidIndices[nextFace];
-        vertexPath.push(midpoint, nextCentroid);
-      }
-
-      for (let i = 0; i < vertexPath.length - 1; ++i) {
-        barrierEdges.add(faceEdgeKey(vertexPath[i], vertexPath[i + 1]));
-      }
-
-      paths.push({
-        sites: [ownerA, ownerB],
-        facePath: facePath.faces,
-        vertexPath,
-        length: facePath.length
-      });
-    }
-
-    return {
-      subdivision,
-      paths,
-      barrierEdges
-    };
+  buildPatchApproximation(
+      triangulation,
+      paperTriangulation,
+      options = {}
+  ) {
+    return buildPatchApproximation(
+        this,
+        triangulation,
+        paperTriangulation,
+        options
+    );
   }
 
   validateEmbeddedDelaunayPaths(
@@ -1401,6 +1255,8 @@ export default class TriangleMesh {
   ) {
     const errors = [];
     const subdivisionEdges = new Set();
+    const requireVoronoiCutCrossing =
+        embedding.refinement?.mode !== "harmonic-straightened-refinement";
 
     for (const triangle of embedding.subdivision.triangles) {
       for (let i = 0; i < 3; ++i) {
@@ -1419,24 +1275,26 @@ export default class TriangleMesh {
     }
 
     for (const path of embedding.paths) {
-      const ownerSequence = path.facePath.map(face => voronoi.owners[face]);
-      let ownerTransitions = 0;
+      if (requireVoronoiCutCrossing) {
+        const ownerSequence = path.facePath.map(face => voronoi.owners[face]);
+        let ownerTransitions = 0;
 
-      for (let i = 1; i < ownerSequence.length; ++i) {
-        if (ownerSequence[i] !== ownerSequence[i - 1]) {
-          ownerTransitions += 1;
+        for (let i = 1; i < ownerSequence.length; ++i) {
+          if (ownerSequence[i] !== ownerSequence[i - 1]) {
+            ownerTransitions += 1;
+          }
         }
-      }
 
-      if (ownerTransitions !== 1
-          || ownerSequence[0] !== path.sites[0]
-          || ownerSequence[ownerSequence.length - 1] !== path.sites[1]) {
-        errors.push({
-          type: "voronoi-cut-crossing",
-          sites: path.sites,
-          ownerTransitions,
-          ownerSequence
-        });
+        if (ownerTransitions !== 1
+            || ownerSequence[0] !== path.sites[0]
+            || ownerSequence[ownerSequence.length - 1] !== path.sites[1]) {
+          errors.push({
+            type: "voronoi-cut-crossing",
+            sites: path.sites,
+            ownerTransitions,
+            ownerSequence
+          });
+        }
       }
 
       if (new Set(path.vertexPath).size !== path.vertexPath.length) {
@@ -1456,6 +1314,26 @@ export default class TriangleMesh {
             edge: [path.vertexPath[i], path.vertexPath[i + 1]]
           });
         }
+      }
+
+      const startSiteVertex = embedding.subdivision.faceCentroidIndices[
+        voronoi.siteFaces[path.sites[0]]
+      ];
+      const endSiteVertex = embedding.subdivision.faceCentroidIndices[
+        voronoi.siteFaces[path.sites[1]]
+      ];
+
+      if (path.vertexPath[0] !== startSiteVertex
+          || path.vertexPath[path.vertexPath.length - 1] !== endSiteVertex) {
+        errors.push({
+          type: "path-endpoints",
+          sites: path.sites,
+          expected: [startSiteVertex, endSiteVertex],
+          actual: [
+            path.vertexPath[0],
+            path.vertexPath[path.vertexPath.length - 1]
+          ]
+        });
       }
     }
 
@@ -1538,164 +1416,6 @@ export default class TriangleMesh {
     }
 
     return cycle.length === neighbors.size ? cycle : null;
-  }
-
-  extractBaseFacePatches(
-      voronoi = this._faceVoronoi,
-      triangulation = this._delaunayLikeTriangulation,
-      embedding = this.embedDelaunayPaths(voronoi, triangulation)
-  ) {
-    const { subdivision, barrierEdges } = embedding;
-    const edgeTriangles = new Map();
-
-    for (let triangle = 0; triangle < subdivision.triangles.length; ++triangle) {
-      const vertices = subdivision.triangles[triangle];
-
-      for (let i = 0; i < 3; ++i) {
-        const key = faceEdgeKey(vertices[i], vertices[(i + 1) % 3]);
-
-        if (!edgeTriangles.has(key)) {
-          edgeTriangles.set(key, []);
-        }
-
-        edgeTriangles.get(key).push(triangle);
-      }
-    }
-
-    const triangleNeighbors = Array.from(
-        { length: subdivision.triangles.length },
-        () => []
-    );
-
-    for (const [key, triangles] of edgeTriangles) {
-      if (barrierEdges.has(key) || triangles.length !== 2) {
-        continue;
-      }
-
-      triangleNeighbors[triangles[0]].push(triangles[1]);
-      triangleNeighbors[triangles[1]].push(triangles[0]);
-    }
-
-    const remaining = new Set(
-        subdivision.triangles.map((_, triangle) => triangle)
-    );
-    const components = [];
-
-    while (remaining.size > 0) {
-      const seed = remaining.values().next().value;
-      const triangles = [];
-      const stack = [seed];
-      remaining.delete(seed);
-
-      while (stack.length > 0) {
-        const triangle = stack.pop();
-        triangles.push(triangle);
-
-        for (const neighbor of triangleNeighbors[triangle]) {
-          if (remaining.delete(neighbor)) {
-            stack.push(neighbor);
-          }
-        }
-      }
-
-      components.push(triangles);
-    }
-
-    const baseFaceBuckets = new Map();
-
-    for (let baseFace = 0; baseFace < triangulation.triangles.length; ++baseFace) {
-      const sites = [...triangulation.triangles[baseFace].sites].sort(
-          (a, b) => a - b
-      );
-      const key = sites.join(":");
-
-      if (!baseFaceBuckets.has(key)) {
-        baseFaceBuckets.set(key, []);
-      }
-
-      baseFaceBuckets.get(key).push(baseFace);
-    }
-
-    const patches = [];
-
-    for (const triangles of components) {
-      const triangleSet = new Set(triangles);
-      const boundaryEdges = [];
-      const vertices = new Set();
-
-      for (const triangle of triangles) {
-        const triangleVertices = subdivision.triangles[triangle];
-
-        for (const vertex of triangleVertices) {
-          vertices.add(vertex);
-        }
-
-        for (let i = 0; i < 3; ++i) {
-          const a = triangleVertices[i];
-          const b = triangleVertices[(i + 1) % 3];
-          const key = faceEdgeKey(a, b);
-          const incident = edgeTriangles.get(key) ?? [];
-          const insideCount = incident.filter(item => triangleSet.has(item)).length;
-
-          if (insideCount === 1
-              && (incident.length === 1 || barrierEdges.has(key))) {
-            boundaryEdges.push([a, b]);
-          }
-        }
-      }
-
-      const uniqueBoundaryEdges = Array.from(
-          new Map(boundaryEdges.map(edge => [
-            faceEdgeKey(edge[0], edge[1]),
-            edge
-          ])).values()
-      );
-      const boundaryCycle = this.orderBoundaryCycle(uniqueBoundaryEdges);
-
-      if (!boundaryCycle) {
-        throw new Error("A base-face patch does not have one simple boundary cycle.");
-      }
-
-      const siteOwners = [];
-
-      for (let owner = 0; owner < voronoi.siteFaces.length; ++owner) {
-        const siteVertex = subdivision.faceCentroidIndices[
-            voronoi.siteFaces[owner]
-        ];
-
-        if (boundaryCycle.includes(siteVertex)) {
-          siteOwners.push(owner);
-        }
-      }
-
-      const key = [...siteOwners].sort((a, b) => a - b).join(":");
-      const bucket = baseFaceBuckets.get(key);
-
-      if (!bucket || bucket.length === 0) {
-        throw new Error(`No base face matches patch sites ${key}.`);
-      }
-
-      patches.push({
-        baseFace: bucket.shift(),
-        sites: siteOwners,
-        triangles,
-        vertices: Array.from(vertices),
-        boundaryEdges: uniqueBoundaryEdges,
-        boundaryCycle
-      });
-    }
-
-    if (patches.length !== triangulation.triangles.length) {
-      throw new Error(
-          `Expected ${triangulation.triangles.length} base-face patches but found ${patches.length}.`
-      );
-    }
-
-    return {
-      subdivision,
-      embedding,
-      patches
-    };
   }
 
   validateBaseFacePatches(

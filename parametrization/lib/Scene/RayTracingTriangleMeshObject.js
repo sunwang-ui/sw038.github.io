@@ -21,8 +21,8 @@
  *                                anything the license permits.
  */
 
-import SceneObject from "./SceneObject.js";
-import TriangleMesh from "../DS/TriangleMesh.js";
+import SceneObject from "./SceneObject.js"
+import TriangleMesh from "../DS/TriangleMesh.js"
 
 export default class RayTracingTriangleMeshObject extends SceneObject {
   constructor(device, canvasFormat, filename, camera, shaderFile) {
@@ -44,6 +44,8 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     this._triangles = this._mesh._triangles.flat();
     this._voronoiBoundaryFlags = new Uint32Array(this._numT);
     this._delaunayPathFlags = new Uint32Array(this._numT);
+    this._delaunaySegmentOffsets = new Uint32Array(this._numT + 1);
+    this._delaunayPathSegments = new Float32Array(4);
     // Create vertex buffer to store the vertices in GPU
     this._vertexBuffer = this._device.createBuffer({
       label: "Vertices Normals and More",
@@ -54,6 +56,7 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     // Copy from CPU to GPU
     new Float32Array(this._vertexBuffer.getMappedRange()).set(this._vertices);
     this._vertexBuffer.unmap();
+    this._surfaceVertexBuffer = this._vertexBuffer;
     //this._device.queue.writeBuffer(this.vertexBuffer, 0, this.vertices);
     // Define vertex buffer layout - how the GPU should read the buffer
     this._vertexBufferLayout = {
@@ -81,6 +84,7 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     // Copy from CPU to GPU
     new Uint32Array(this._indexBuffer.getMappedRange()).set(this._triangles);
     this._indexBuffer.unmap();
+    this._surfaceIndexBuffer = this._indexBuffer;
     //this._device.queue.writeBuffer(this.indexBuffer, 0, this.triangles);
     
     // Create camera buffer to store the camera pose and scale in GPU
@@ -115,6 +119,27 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     });
     new Uint32Array(this._delaunayPathBuffer.getMappedRange()).set(this._delaunayPathFlags);
     this._delaunayPathBuffer.unmap();
+    this._delaunaySegmentOffsetBuffer = this._device.createBuffer({
+      label: "Delaunay Segment Offsets " + this.getName(),
+      size: Math.max(1, this._delaunaySegmentOffsets.length) * Uint32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint32Array(this._delaunaySegmentOffsetBuffer.getMappedRange()).set(
+        this._delaunaySegmentOffsets
+    );
+    this._delaunaySegmentOffsetBuffer.unmap();
+    this._delaunaySegmentBuffer = this._device.createBuffer({
+      label: "Delaunay Path Segments " + this.getName(),
+      size: Math.max(4, this._delaunayPathSegments.length)
+          * Float32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Float32Array(this._delaunaySegmentBuffer.getMappedRange()).set(
+        this._delaunayPathSegments
+    );
+    this._delaunaySegmentBuffer.unmap();
     this.writeOverlayBuffer();
   }
 
@@ -133,7 +158,11 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
       none: 0,
       original: 1,
       voronoi: 2,
-      delaunay: 3
+      delaunay: 3,
+      straightened: 4,
+      base: 5,
+      remesh: 6,
+      approximation: 7
     };
     this._overlayMode = typeof mode === "number" ? mode : modes[mode] ?? 0;
 
@@ -171,6 +200,275 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     }
     else if (this.sameUndirectedEdge(edge, tri[0], tri[1])) {
       this._delaunayPathFlags[faceIndex] |= 4;
+    }
+  }
+
+  createGeometryBuffers(vertices, triangles, label) {
+    const vertexBuffer = this._device.createBuffer({
+      label: `${label} Vertices`,
+      size: vertices.length * Float32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Float32Array(vertexBuffer.getMappedRange()).set(vertices);
+    vertexBuffer.unmap();
+    const indexBuffer = this._device.createBuffer({
+      label: `${label} Indices`,
+      size: triangles.length * Uint32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint32Array(indexBuffer.getMappedRange()).set(triangles);
+    indexBuffer.unmap();
+    return { vertexBuffer, indexBuffer };
+  }
+
+  buildVertexPayload(positions, triangles) {
+    const normals = Array.from(
+        { length: positions.length },
+        () => [0, 0, 0]
+    );
+    const center = positions.reduce((sum, position) => {
+      sum[0] += position[0] / positions.length;
+      sum[1] += position[1] / positions.length;
+      sum[2] += position[2] / positions.length;
+      return sum;
+    }, [0, 0, 0]);
+    const orientedTriangles = triangles.map(triangle => [...triangle]);
+
+    for (const triangle of orientedTriangles) {
+      const a = positions[triangle[0]];
+      const b = positions[triangle[1]];
+      const c = positions[triangle[2]];
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const normal = [
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0]
+      ];
+      const faceCenter = [
+        (a[0] + b[0] + c[0]) / 3,
+        (a[1] + b[1] + c[1]) / 3,
+        (a[2] + b[2] + c[2]) / 3
+      ];
+      const outward = [
+        faceCenter[0] - center[0],
+        faceCenter[1] - center[1],
+        faceCenter[2] - center[2]
+      ];
+
+      if (normal[0] * outward[0]
+          + normal[1] * outward[1]
+          + normal[2] * outward[2] < 0) {
+        [triangle[1], triangle[2]] = [triangle[2], triangle[1]];
+        normal[0] *= -1;
+        normal[1] *= -1;
+        normal[2] *= -1;
+      }
+
+      for (const vertex of triangle) {
+        normals[vertex][0] += normal[0];
+        normals[vertex][1] += normal[1];
+        normals[vertex][2] += normal[2];
+      }
+    }
+
+    const payload = [];
+
+    for (let vertex = 0; vertex < positions.length; ++vertex) {
+      const normal = normals[vertex];
+      const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+      payload.push(
+          positions[vertex][0],
+          positions[vertex][1],
+          positions[vertex][2],
+          normal[0] / length,
+          normal[1] / length,
+          normal[2] / length
+      );
+    }
+
+    return {
+      vertices: payload,
+      triangles: orientedTriangles.flat()
+    };
+  }
+
+  setDerivedGeometry(slot, label, { vertices, triangles }) {
+    if (!vertices?.length || !triangles?.length) {
+      return;
+    }
+
+    const payload = this.buildVertexPayload(vertices, triangles);
+    this[slot] = {
+      vertexCount: vertices.length,
+      triangleCount: triangles.length,
+      ...payload,
+      ...this.createGeometryBuffers(
+          payload.vertices,
+          payload.triangles,
+          label
+      )
+    };
+  }
+
+  setBaseMeshGeometry(geometry) {
+    this.setDerivedGeometry("_baseGeometry", "Base Mesh", geometry);
+  }
+
+  setRemeshGeometry(geometry) {
+    this.setDerivedGeometry("_remeshGeometry", "Remesh", geometry);
+  }
+
+  setApproximationGeometry(geometry) {
+    this.setDerivedGeometry("_approximationGeometry", "Approximation", geometry);
+  }
+
+  useGeometryBuffers(vertexBuffer, indexBuffer) {
+    if (!vertexBuffer || !indexBuffer
+        || (this._vertexBuffer === vertexBuffer
+            && this._indexBuffer === indexBuffer)) {
+      return false;
+    }
+
+    this._vertexBuffer = vertexBuffer;
+    this._indexBuffer = indexBuffer;
+
+    if (this._bindGroup && this._outTexture) {
+      this.createBindGroup(this._outTexture);
+    }
+
+    return true;
+  }
+
+  useSurfaceGeometry() {
+    this.useGeometryBuffers(this._surfaceVertexBuffer, this._surfaceIndexBuffer);
+  }
+
+  useDerivedGeometry(slot) {
+    const geometry = this[slot];
+
+    if (!geometry) {
+      return;
+    }
+
+    this.useGeometryBuffers(geometry.vertexBuffer, geometry.indexBuffer);
+  }
+
+  useBaseMeshGeometry() {
+    this.useDerivedGeometry("_baseGeometry");
+  }
+
+  useRemeshGeometry() {
+    this.useDerivedGeometry("_remeshGeometry");
+  }
+
+  useApproximationGeometry() {
+    this.useDerivedGeometry("_approximationGeometry");
+  }
+
+  rebuildDelaunaySegmentBuffers(paths) {
+    const segmentsByFace = Array.from({ length: this._numT }, () => []);
+    const addSegment = (face, start, end) => {
+      if (face < 0 || face >= this._numT || !start || !end) {
+        return;
+      }
+
+      const startUV = [start[1], start[2]];
+      const endUV = [end[1], end[2]];
+
+      if (!startUV.every(Number.isFinite) || !endUV.every(Number.isFinite)) {
+        return;
+      }
+
+      if (Math.hypot(startUV[0] - endUV[0], startUV[1] - endUV[1]) < 1e-8) {
+        return;
+      }
+
+      segmentsByFace[face].push([
+        startUV[0],
+        startUV[1],
+        endUV[0],
+        endUV[1]
+      ]);
+    };
+
+    for (const path of paths) {
+      if (path.displaySegments) {
+        for (const segment of path.displaySegments) {
+          addSegment(
+              segment.face,
+              segment.start.barycentric,
+              segment.end.barycentric
+          );
+        }
+        continue;
+      }
+
+      if (path.halfPaths) {
+        for (const half of path.halfPaths) {
+          for (const segment of half.segments) {
+            addSegment(
+                segment.face,
+                segment.start.barycentric,
+                segment.end.barycentric
+            );
+          }
+        }
+        continue;
+      }
+
+      if (path.segments) {
+        for (const segment of path.segments) {
+          addSegment(
+              segment.face,
+              segment.start.barycentric,
+              segment.end.barycentric
+          );
+        }
+      }
+    }
+
+    const offsets = new Uint32Array(this._numT + 1);
+    const values = [];
+
+    for (let face = 0; face < this._numT; ++face) {
+      offsets[face] = values.length / 4;
+
+      for (const segment of segmentsByFace[face]) {
+        values.push(...segment);
+      }
+    }
+
+    offsets[this._numT] = values.length / 4;
+    this._delaunaySegmentOffsets = offsets;
+    this._delaunayPathSegments = new Float32Array(values.length > 0 ? values : [0, 0, 0, 0]);
+    this._delaunaySegmentOffsetBuffer?.destroy();
+    this._delaunaySegmentBuffer?.destroy();
+    this._delaunaySegmentOffsetBuffer = this._device.createBuffer({
+      label: "Delaunay Segment Offsets " + this.getName(),
+      size: Math.max(1, offsets.length) * Uint32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint32Array(this._delaunaySegmentOffsetBuffer.getMappedRange()).set(
+        offsets
+    );
+    this._delaunaySegmentOffsetBuffer.unmap();
+    this._delaunaySegmentBuffer = this._device.createBuffer({
+      label: "Delaunay Path Segments " + this.getName(),
+      size: this._delaunayPathSegments.length * Float32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Float32Array(this._delaunaySegmentBuffer.getMappedRange()).set(
+        this._delaunayPathSegments
+    );
+    this._delaunaySegmentBuffer.unmap();
+
+    if (this._bindGroup && this._outTexture) {
+      this.createBindGroup(this._outTexture);
     }
   }
 
@@ -227,6 +525,8 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
     for (const siteFace of voronoi.siteFaces) {
       this._delaunayPathFlags[siteFace] |= 8;
     }
+
+    this.rebuildDelaunaySegmentBuffers(embedding.paths);
 
     for (const path of embedding.paths) {
       for (let i = 0; i < path.facePath.length - 1; ++i) {
@@ -302,6 +602,14 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
         binding: 6,
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage"} // Delaunay path flags
+      }, {
+        binding: 7,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage"} // Delaunay segment offsets
+      }, {
+        binding: 8,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage"} // Delaunay path segments
       }]
     });
     this._pipelineLayout = this._device.createPipelineLayout({
@@ -315,6 +623,7 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
   render(pass) { }
   
   createBindGroup(outTexture) {
+    this._outTexture = outTexture;
     // Create a bind group
     this._bindGroup = this._device.createBindGroup({
       label: "Ray Trace Mesh Bind Group",
@@ -347,6 +656,14 @@ export default class RayTracingTriangleMeshObject extends SceneObject {
       {
         binding: 6,
         resource: { buffer: this._delaunayPathBuffer }
+      },
+      {
+        binding: 7,
+        resource: { buffer: this._delaunaySegmentOffsetBuffer }
+      },
+      {
+        binding: 8,
+        resource: { buffer: this._delaunaySegmentBuffer }
       }
       ],
     });
